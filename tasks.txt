@@ -1,5 +1,5 @@
 valentino: lexing, parsing
-nina: execution, builtins
+nina: execution, builtins, variable expansion
 
 1. lexing
     put every word/symbol into corresponding type/token
