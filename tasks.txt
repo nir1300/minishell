@@ -1,0 +1,21 @@
+1. lexing
+    put every word/symbol into corresponding type/token
+    classify, dont interpret yet
+    enums
+    potential errors: unclosed quotes, invalid chars
+
+2. parsing
+    structure tokens into abstract syntax tree
+    take redirections & pipes into consideration
+    potential errors: consecutive pipes (|||)
+    invalid redirections (> file.txt echo hello)
+    missing commands after pipe (ls |)
+
+3. expansion
+    handle $varname, tilde
+    potential errors: 
+
+4. execution
+    execute commands
+    handle redirections and fds
+    potential errors: command not found, permission denied, file not found, 
