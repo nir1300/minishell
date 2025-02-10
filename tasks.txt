@@ -1,3 +1,6 @@
+valentino: lexing, parsing
+nina: execution, builtins
+
 1. lexing
     put every word/symbol into corresponding type/token
     classify, dont interpret yet
