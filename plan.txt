@@ -1,21 +1,971 @@
-1. lexing
-    put every word/symbol into corresponding type/token
-    classify, dont interpret yet
-    enums
-    potential errors: unclosed quotes, invalid chars
+First, the structure. A shell generally works in a loop: read input, parse it, execute commands, repeat. So the main loop will be something like:
 
-2. parsing
-    structure tokens into abstract syntax tree
-    take redirections & pipes into consideration
-    potential errors: consecutive pipes (|||)
-    invalid redirections (> file.txt echo hello)
-    missing commands after pipe (ls |)
+while (1) {
 
-3. expansion
-    handle $varname, tilde
-    potential errors: 
+display prompt;
 
-4. execution
-    execute commands
-    handle redirections and fds
-    potential errors: command not found, permission denied, file not found, 
+read input;
+
+parse input into commands;
+
+execute commands;
+
+}
+
+But each part is more complex than that. Let's start with the input. The subject mentions using readline, which handles line editing and history. So I'll need to include the readline library. The prompt should be displayed each time, and input is read with readline(). Also, add_history() to save each command in history. But wait, the << here-document shouldn't update history. So maybe after parsing, if the command includes a here-doc, we don't add that part to history? Or perhaps the main line is still added, but the here-doc lines aren't. Need to check that.
+
+Next, parsing the input. The input can have various elements: commands, arguments, redirections, pipes, quotes, variables. Parsing is going to be one of the most challenging parts. The shell needs to split the input into tokens, handling spaces, quotes, variables, etc.
+
+Let me outline the parsing steps. First, the lexer: split the input string into tokens. Tokens can be words, operators like >, >>, <, <<, |, etc. Also, handle quotes: single quotes prevent all expansions, double quotes allow variable expansion. Variables like $VAR or $? need to be expanded. Special characters like $, quotes, redirections, and pipes need to be properly tokenized.
+
+So the lexer needs to:
+
+1. Split the input into tokens, considering spaces and metacharacters.
+
+2. Handle quoting: when inside single or double quotes, most metacharacters are escaped.
+
+3. Expand variables and $?.
+
+After lexing, the parser needs to build a command structure. Each command can have arguments, redirections, pipes. For example, a command like "ls > out.txt | grep file" would parse into two commands connected by a pipe, with the first having an output redirection.
+
+So the parser should generate an abstract syntax tree (AST) or a list of commands with their redirections and pipes. Each command node might contain:
+
+- Command name and arguments (array of strings)
+
+- Input redirections (list of files/here-docs)
+
+- Output redirections (list of files, append or truncate)
+
+- Pipe to next command (if any)
+
+- Environment variables (if needed, but maybe handled during expansion)
+
+Once parsed, the execution phase begins. Execution involves forking processes, setting up pipes and redirections, handling builtins, and executing external commands via execve.
+
+For each command in the pipeline:
+
+- If it's a builtin (like cd, echo), execute it directly in the parent process (except in a pipeline where it has to be in a child? Wait, in bash, builtins in a pipeline run in a subshell. So maybe all commands, including builtins, run in child processes except when it's a single builtin command. Hmm, need to check. For example, in "cd .. | echo hello", the cd would not affect the parent shell. So builtins in pipelines must run in child processes. Therefore, perhaps all commands are executed in child processes except when the command is a single builtin that doesn't need to be in a pipeline. For example, "cd" alone would run in the parent, but "cd | echo" would run in a child. Wait, but in bash, even a single builtin like 'exit' runs in the current shell. So maybe the execution strategy is: if the command is a simple command (no pipes) and is a builtin, execute in the parent; otherwise, fork. So for pipelines, all parts are in children. For single commands, builtins run in parent, others in child. That's important for environment variables. For example, if you run "export VAR=value", that should affect the parent shell's environment. So if we run builtins in the parent when they are the only command, that's correct.
+
+So during execution:
+
+- Parse the command structure into a list of commands connected by pipes.
+
+- For each command in the list, set up pipes between them.
+
+- For each command, handle redirections (which may involve here-docs).
+
+- If it's a builtin and the command is a single command (no pipes), execute in parent. Else, fork and execute in child.
+
+Redirections need to be handled before executing the command. For example, open the necessary files, redirect stdin/stdout. Here-docs are tricky because they require reading input until the delimiter. For <<, the shell reads lines from the input until the delimiter is found, and then that becomes the input for the command. This input can be stored in a temporary file or a pipe. Since here-docs can be large, using a temporary file might be better. Or use a pipe, but if the data is larger than the pipe buffer, it could block. So maybe a temporary file is safer. But how to create and manage that. Alternatively, read all the here-doc content into memory, but that's not feasible for large inputs. Hmm, the subject says that the shell does not have to update the history for the lines read in the here-doc. So the here-doc processing is part of the parsing phase.
+
+So during parsing, when a << is encountered, the shell needs to read from stdin (the user's input) until the delimiter is found, and then use that as the input for the command. But how to read from the user while the shell is waiting for input. Wait, when you have a command like "cat << EOF", the shell reads the lines after the command line until EOF is found. So the here-doc is part of the command input. So in the parsing phase, after reading the initial line with readline(), if that line contains a <<, the shell needs to prompt the user (without adding to history) for each line until the delimiter is found. So maybe during the parsing phase, after tokenizing, when a here-doc is detected, the shell enters a loop to read lines until the delimiter is found, and then those lines are stored (maybe in a temporary file or as a string) to be used as input for the command.
+
+So here's a possible approach for here-docs:
+
+When parsing a command and encountering <<, read the delimiter. Then, in a loop, read lines using readline() (but without adding to history) until a line containing exactly the delimiter is found. Collect those lines into a temporary file, then set the input redirection to that file. Alternatively, create a pipe and write the lines to the pipe, then set the input to the read end of the pipe. But pipes have limited buffer sizes, so for large here-docs, this could be a problem. Temporary files might be better. But for simplicity, maybe using a pipe is sufficient for the project's scope. Or the shell can handle it as a string and pass via a pipe. But need to manage that.
+
+Once all redirections and here-docs are handled, the command can be executed.
+
+Now, for variables expansion. The shell needs to expand $VAR and $?. The expansion occurs in double quotes, but not in single quotes. So during the tokenization/lexing phase, when inside double quotes, $ is expanded. The expansion of $VAR is done by looking up the environment variables. $? expands to the exit status of the last command. So the shell needs to keep track of the exit status. Each time a command is executed, the exit status is stored in a global variable (or some structure) so that $? can be expanded to that value.
+
+But the subject says that we can have only one global variable to handle signals. So for exit status, maybe we can have another global variable, but the subject isn't explicit about that. Wait, the subject says: "Avoid using more than one global variable to indicate a received signal." So we can have other global variables, as long as they're not related to signals. So for $?, which is the exit status, we can have a global variable like g_exit_status. That's acceptable.
+
+So during variable expansion, whenever $ is encountered (and not in single quotes), replace $VAR with its value from the environment, and $? with the value of g_exit_status.
+
+Now, builtins. The shell must implement echo, cd, pwd, export, unset, env, exit. Each of these needs to be handled as a built-in function. For example, when the command is "cd dir", the shell calls its own cd function, which changes the current directory using chdir(), and updates PWD and OLDPWD environment variables.
+
+For the execution part, when a builtin is encountered as a simple command (no pipes), the shell executes it directly without forking. Otherwise, if it's part of a pipeline, it must be executed in a child process.
+
+Signals handling. The shell must handle ctrl-C (SIGINT), ctrl-D (EOF), and ctrl-\ (SIGQUIT). In interactive mode:
+
+- Ctrl-C displays a new prompt on a new line. So when SIGINT is received during a command execution, it should interrupt the command. But if the shell is waiting for input (at the prompt), then ctrl-C should just move to a new line and re-display the prompt. How to handle this. For example, when the shell is in the readline() function, ctrl-C will cause readline to return NULL, but according to the subject, in interactive mode, ctrl-C should display a new prompt. Wait, in bash, when you press ctrl-C at the prompt, it just moves to a new line. But if a command is running, ctrl-C interrupts the command. So the signal handlers need to be set up such that during prompt waiting, SIGINT is handled by the shell to redisplay the prompt, but during command execution, it's passed to the child processes. However, the parent shell should catch SIGINT and handle it appropriately.
+
+Wait, the shell itself is the parent process. When it's waiting for a command (in readline()), pressing ctrl-C should cause readline to return, but the shell should catch the signal and redisplay the prompt. So maybe the signal handlers are set to ignore SIGINT while the child processes are running, but during the prompt, they are handled to redisplay the prompt. Hmm, this is tricky. Let's think: in the parent shell process, during normal operation (waiting for input), SIGINT (ctrl-C) should be caught and cause a new prompt to be displayed. But when a child process is executing a command (like sleep 10), pressing ctrl-C should send SIGINT to the child process. So how to handle that.
+
+In Unix, when you run a command in the foreground, the shell typically sets the process group of the child to the foreground group, and the shell itself ignores signals like SIGINT and SIGQUIT, allowing the child to receive them. When the child exits, the shell restores its signal handlers. So for the minishell, when executing a command in the foreground, the shell needs to:
+
+- Fork a child process.
+
+- In the child, set its process group (using setpgid) and maybe make it the foreground process group (using tcsetpgrp).
+
+- The shell (parent) waits for the child to finish, and then restores the foreground process group to itself.
+
+But handling signals in this way requires careful setup. The subject says that in interactive mode, ctrl-C should display a new prompt. So perhaps, when the shell is waiting for input (in readline()), the SIGINT handler is set to a function that writes a newline and re-displays the prompt. But when executing a command, the SIGINT is set to default (so that the child process can receive it), and the parent (shell) is ignoring it or handling it appropriately.
+
+This is getting complex. Maybe the best way is to have the shell handle SIGINT during the prompt (readline) to redisplay the prompt, but when executing a command, reset the signal handlers to default for the child, and the parent (shell) waits for the child to finish, ignoring the signals. But I need to ensure that the shell itself doesn't exit when a signal is received while waiting for a child.
+
+Alternatively, when the shell is executing a command (like a foreground process), it should block signals like SIGINT and SIGQUIT, and let the child process handle them. But how?
+
+Another approach is to have a global variable to indicate if the shell is in the prompt phase or executing a command. The signal handler for SIGINT checks this variable: if in prompt, it writes a newline and redisplays the prompt. If executing a command, it does nothing (the signal is sent to the child process). But how to manage that.
+
+Wait, in the parent shell, when it's waiting for a child process (using waitpid), if a SIGINT is received, the waitpid call will be interrupted. The parent needs to handle that. But in the case of an interactive shell, the parent is waiting for the child to complete, and if a signal arrives, the parent's signal handler may need to take action. This is getting a bit complicated. Maybe using sigaction with SA_RESTART to automatically restart system calls interrupted by signals. But not sure.
+
+Alternatively, when the shell is executing a command, it can ignore SIGINT and SIGQUIT (since the child will handle them), and when it's back to the prompt, it sets the handlers again. Hmm.
+
+This requires careful signal handling setup. Let me outline the steps:
+
+1. At startup, the shell sets up signal handlers for SIGINT, SIGQUIT, and SIGTERM (if needed). But according to the subject, in interactive mode:
+
+- Ctrl-C (SIGINT) displays a new prompt on a new line.
+
+- Ctrl-D (EOF) exits the shell.
+
+- Ctrl-\ (SIGQUIT) does nothing.
+
+Wait, the subject says that in interactive mode:
+
+- ctrl-C (SIGINT) displays a new prompt on a new line.
+
+- ctrl-D exits the shell.
+
+- ctrl-\ (SIGQUIT) does nothing.
+
+But during command execution, ctrl-C should send SIGINT to the command, and ctrl-\ should send SIGQUIT. So the shell's signal handling must differ between when it's waiting for input and when it's executing a command.
+
+So the plan is:
+
+- While waiting for input (in readline()), SIGINT is caught by the shell to redisplay the prompt. SIGQUIT is ignored.
+
+- While a command is executing, SIGINT and SIGQUIT are set to default behavior, so that they are delivered to the child process.
+
+But how to switch between these two signal handling modes.
+
+In code terms:
+
+- In the main loop, before calling readline(), set up the signal handlers for SIGINT and SIGQUIT to the interactive mode handlers.
+
+- When about to execute a command (after parsing), set the signal handlers for SIGINT and SIGQUIT to SIG_IGN (ignore) in the parent, and let the child process have default handlers.
+
+- Wait for the child to finish, then restore the signal handlers to interactive mode.
+
+Wait, but the child process will inherit the parent's signal handlers. So if the parent is ignoring SIGINT, then the child will also ignore it unless it resets the handlers. Therefore, in the child process, after forking, we need to reset the signal handlers to default.
+
+So the steps would be:
+
+Parent shell (interactive mode):
+
+- Setup signal handlers to catch SIGINT (for new prompt) and ignore SIGQUIT.
+
+- Read input using readline().
+
+- Parse input into commands.
+
+- For each command in a pipeline:
+
+- Fork a child process.
+
+- In the child:
+
+- Reset signal handlers to default.
+
+- Set up redirections and pipes.
+
+- Execute the command (builtin or execve).
+
+- Parent waits for the child processes to finish.
+
+But the problem is that when the parent is waiting for the child, if a signal is received (like SIGINT), the default behavior would be to terminate the parent. So the parent must handle signals while waiting.
+
+Alternatively, the parent can block the signals while waiting for the child. But how.
+
+Alternatively, the parent could set the signal handlers to SIG_IGN while executing commands. Then, when the child is running, any SIGINT/SIGQUIT would be sent to the child (since the parent is ignoring them, but the child has default handlers).
+
+But how to ensure that. Let's think: in the parent, before forking, we set SIGINT and SIGQUIT to be ignored. Then, the child, after fork, resets them to default. So when the user presses ctrl-C while the child is running, the SIGINT is sent to both the parent and the child. The parent ignores it, the child (which has default handler) terminates. The parent, waiting in waitpid, would detect that the child was interrupted and can set the exit status accordingly.
+
+But in the case of a foreground command, the shell should wait for the command to finish, and during that time, handle signals appropriately.
+
+This is a common pattern in shells. The standard approach is:
+
+- When the shell is running a foreground command, it needs to ensure that the command receives the signals, not the shell. So the shell temporarily ignores the signals, and the child process runs with default signal handlers.
+
+But how to manage that. Here's a possible approach:
+
+In the parent shell:
+
+1. Before creating a child process, set up signal handlers for SIGINT and SIGQUIT to be ignored (using signal() or sigaction() with SA_SIGINFO).
+
+2. Fork the child.
+
+3. In the child process, reset the signal handlers to default.
+
+4. Also, in the child, if it's part of a pipeline, set up the process group so that signals are directed to the entire pipeline.
+
+5. The parent shell then waits for the child to complete. During this wait, if a signal is received (like SIGINT), since the parent is ignoring it, nothing happens. The child, which has default handlers, would terminate upon receiving SIGINT.
+
+6. After the child exits, the parent restores the original signal handlers (to handle the next prompt).
+
+But wait, the parent is ignoring SIGINT and SIGQUIT while the child is running. When the user presses ctrl-C, the SIGINT is sent to both the parent and the child. The parent ignores it, the child (with default handler) terminates. The parent's waitpid() returns, and then the parent restores the signal handlers for the next prompt.
+
+This seems plausible. Let's code this idea.
+
+In code:
+
+// In parent shell
+
+void    setup_parent_signals(void)
+
+{
+
+struct sigaction sa;
+
+sa.sa_handler = SIG_IGN;
+
+sigemptyset(&sa.sa_mask);
+
+sa.sa_flags = 0;
+
+sigaction(SIGINT, &sa, NULL);
+
+sigaction(SIGQUIT, &sa, NULL);
+
+}
+
+// In child process
+
+void    reset_child_signals(void)
+
+{
+
+struct sigaction sa;
+
+sa.sa_handler = SIG_DFL;
+
+sigemptyset(&sa.sa_mask);
+
+sa.sa_flags = 0;
+
+sigaction(SIGINT, &sa, NULL);
+
+sigaction(SIGQUIT, &sa, NULL);
+
+}
+
+Then, when executing a command:
+
+pid_t pid = fork();
+
+if (pid == 0) {
+
+reset_child_signals();
+
+// setup redirections, pipes, etc.
+
+execve(...);
+
+} else {
+
+setup_parent_signals();
+
+waitpid(pid, &status, 0);
+
+// restore signal handlers for the shell prompt
+
+setup_prompt_signals();
+
+}
+
+But how to handle the signal handlers for the prompt. The setup_prompt_signals function would set SIGINT to a custom handler that prints a new prompt.
+
+Yes. So in the main loop, after executing a command, the shell sets up the signal handlers again for the prompt.
+
+So during the prompt phase:
+
+void    handle_sigint(int sig)
+
+{
+
+(void)sig;
+
+write(1, "\n", 1);
+
+rl_on_new_line();
+
+rl_replace_line("", 0);
+
+rl_redisplay();
+
+}
+
+void    setup_prompt_signals(void)
+
+{
+
+struct sigaction sa;
+
+sa.sa_handler = &handle_sigint;
+
+sigemptyset(&sa.sa_mask);
+
+sa.sa_flags = SA_RESTART;
+
+sigaction(SIGINT, &sa, NULL);
+
+// SIGQUIT should do nothing in interactive mode
+
+sa.sa_handler = SIG_IGN;
+
+sigaction(SIGQUIT, &sa, NULL);
+
+}
+
+So the main loop would be:
+
+setup_prompt_signals();
+
+while (1) {
+
+char *input = readline(prompt);
+
+if (input == NULL) { // ctrl-D
+
+exit(0);
+
+}
+
+add_history(input);
+
+parse(input);
+
+execute_commands();
+
+free(input);
+
+}
+
+But the setup_prompt_signals is called before readline, ensuring that during input reading, the SIGINT is handled by handle_sigint. When executing commands, the parent sets signals to ignore, so during command execution, the shell is immune to SIGINT and SIGQUIT, and the child processes receive them.
+
+This approach should handle the signals correctly.
+
+Now, for the parser. Let's outline the steps for parsing:
+
+1. Tokenize the input string into tokens. Tokens can be:
+
+- Words (strings, possibly with quotes)
+
+- Redirection operators: <, >, <<, >>
+
+- Pipe: |
+
+- Variables: $VAR, $?
+
+2. Handle quotes:
+
+- Single quotes '...' preserve all characters literally.
+
+- Double quotes "..." allow variable expansion ($VAR, $?) but not other expansions (like command substitution, which is not required here).
+
+3. Expand variables and $? in double quotes and unquoted regions.
+
+4. Split the tokens into commands separated by pipes. Each command has its arguments, input/output redirections.
+
+The tokenizer can be implemented as a state machine. The states could be:
+
+- Default: looking for the next token, which can be a word, operator, etc.
+
+- In single quotes: read until next '.
+
+- In double quotes: read until next ", allowing $ expansions.
+
+So the tokenizer steps through each character, keeping track of the current state (default, in-single-quote, in-double-quote), and builds tokens accordingly.
+
+For example, the input echo "hello $USER" > out.txt would be tokenized into:
+
+"echo", "hello $USER", ">", "out.txt"
+
+Then, during expansion, the $USER is replaced with the environment variable.
+
+The parser then groups these tokens into commands. The first command is "echo" with argument "hello expanded_USER", output redirected to out.txt.
+
+Implementing the tokenizer and parser is a big task. To make it scalable, perhaps separate the lexing and parsing phases.
+
+Lexer:
+
+- Input string -> list of tokens.
+
+Parser:
+
+- List of tokens -> abstract syntax tree (commands with pipes and redirections).
+
+For the lexer, functions to read each token, considering quotes and operators.
+
+For example, a function get_next_token() that returns the next token, advancing the input pointer.
+
+Once tokens are generated, the parser can arrange them into commands. Each command has arguments and redirections. For example:
+
+tokens: [ "ls", ">", "out.txt", "|", "grep", "file" ]
+
+This would parse into two commands:
+
+Command 1: args ["ls"], output redirect to "out.txt"
+
+Command 2: args ["grep", "file"], connected via pipe to command 1.
+
+Redirections can be handled by collecting all redirection tokens (<, <<, >, >>) and their corresponding files, then attaching them to the command.
+
+Pipes are handled by splitting the token list into command segments separated by |, then connecting each command to the next via a pipe.
+
+Now, for the execution part. Each command in a pipeline needs to be connected via pipes. For example, for cmd1 | cmd2 | cmd3:
+
+- Create a pipe between cmd1 and cmd2.
+
+- Create another pipe between cmd2 and cmd3.
+
+- Each command's stdout is connected to the write end of the pipe, except the last command.
+
+- Each command's stdin is connected to the read end of the previous pipe, except the first command.
+
+In code, for each command except the last, create a pipe. Then, for each command, redirect stdin and stdout accordingly.
+
+For example:
+
+int num_commands = 3;
+
+int pipes[num_commands-1][2];
+
+for (i=0; i < num_commands-1; i++) {
+
+pipe(pipes[i]);
+
+}
+
+for each command i:
+
+if (i > 0) {
+
+dup2(pipes[i-1][0], STDIN_FILENO);
+
+close(pipes[i-1][0]);
+
+}
+
+if (i < num_commands-1) {
+
+dup2(pipes[i][1], STDOUT_FILENO);
+
+close(pipes[i][1]);
+
+}
+
+// Close all other pipe ends
+
+close_pipes_except_current(i);
+
+execute command i;
+
+But managing the pipe file descriptors is tricky. Each command in the pipeline should only have the necessary pipes open. All other file descriptors should be closed to prevent resource leaks.
+
+For the parent shell, after forking all children, it needs to close all pipe ends and wait for all processes to finish.
+
+But wait, in a pipeline like cmd1 | cmd2 | cmd3, each command is a separate process. The shell must fork for each command, set up the pipes, and wait for all to finish. However, the shell should wait for the last command in the pipeline to finish, but the order of waiting can affect the exit status.
+
+Alternatively, the shell can wait for each child in sequence, but the exit status of the pipeline is the exit status of the last command.
+
+But handling this correctly requires tracking all child PIDs and waiting for them. For example:
+
+pid_t *pids = malloc(num_commands * sizeof(pid_t));
+
+for each command:
+
+pids[i] = fork();
+
+if (child) {
+
+setup pipes and execute command
+
+exit();
+
+}
+
+// parent
+
+close all pipe fds;
+
+for (i=0; i < num_commands; i++) {
+
+waitpid(pids[i], &status, 0);
+
+if (i == num_commands - 1) {
+
+// save exit status of last command
+
+g_exit_status = WEXITSTATUS(status);
+
+}
+
+}
+
+But in reality, the shell should wait for all child processes, but the exit status is that of the last command.
+
+Now, about builtins. Builtins like cd, export, unset need to modify the shell's environment, so they must be executed in the parent process when they are the only command. If they are part of a pipeline, they must be executed in a child process, so that their changes don't affect the parent shell's environment.
+
+For example:
+
+cd dir: runs in parent, changes directory.
+
+cd dir | echo hello: runs in a child, so the directory change doesn't affect the parent.
+
+Thus, during execution, the shell checks if the command is a builtin and whether it's a single command (no pipes). If so, execute in parent; else, fork and execute in child.
+
+So the execution logic:
+
+if (command is builtin && is_single_command) {
+
+execute_builtin();
+
+set g_exit_status;
+
+} else {
+
+fork and execute in child;
+
+}
+
+But how to determine if it's a single command. If the command list has only one command and no pipes, then it's a single command. So during parsing, the parser would generate a list of commands, and the execution phase can check if the list's length is 1.
+
+For builtins that are part of a pipeline, they must be executed in a child process, even if they are builtins. For example:
+
+echo hello | cd dir
+
+Here, 'cd dir' is part of the pipeline and runs in a child, so it doesn't affect the parent's directory.
+
+So the execution code must handle that.
+
+Now, handling redirections. Each command can have multiple input and output redirections. The shell must process them in the order they appear, with later redirections overriding earlier ones. For example:
+
+cat < file1 < file2
+
+In this case, the last input redirection (file2) is used. So during parsing, for each command, collect all input and output redirections, and apply them in order. The last one takes precedence.
+
+Thus, during execution, the shell (or child process) opens the files in the order of the redirections and redirects stdin/stdout accordingly. For example:
+
+For input redirections:
+
+int fd_in = STDIN_FILENO;
+
+for each input_redirect in command->input_redirects:
+
+close(fd_in); // unless it's STDIN
+
+fd_in = open(input_redirect->filename, O_RDONLY);
+
+if (fd_in == -1) {
+
+perror("open");
+
+exit(1);
+
+}
+
+dup2(fd_in, STDIN_FILENO);
+
+close(fd_in);
+
+Similarly for output redirections. But for appending (>>), the O_APPEND flag is used.
+
+Here-docs (<<) are handled by reading input until the delimiter is found. As mentioned earlier, during parsing, when a << is encountered, the shell reads lines until the delimiter and stores them, perhaps in a temporary file. Then, the input redirection is set to that file.
+
+For example:
+
+cat << EOF
+
+hello
+
+world
+
+EOF
+
+The parser, when processing the <<, would read the lines "hello" and "world" into a temporary file, then set the command's input to that file.
+
+Implementing here-docs:
+
+During parsing, when a << token is found, the next token is the delimiter. Then, the shell enters a loop to read lines from the user until a line containing only the delimiter is encountered. These lines are stored in a temporary file. The filename is then added to the command's input redirections.
+
+But how to read the lines. Since readline() is used for the main input, but here-doc lines are part of the command input. So during parsing, if the command includes here-docs, the shell must read those lines before proceeding. So the parsing phase needs to handle here-docs.
+
+For example, the main input line is "cat << EOF", then the shell reads the next lines until "EOF" is found. This is done during parsing. So the parser must handle here-doc collection.
+
+This requires the parser to be able to read additional lines if necessary. So the initial readline() reads the main line, but if there's an unterminated here-doc, the parser must prompt the user for more lines until the delimiter is found.
+
+But how to prompt the user. The subject says that here-docs do not update the history. So when reading the here-doc lines, the shell should not add them to the history. But the main line (with <<) is added to history.
+
+So during the parsing phase, after tokenizing the main line, if a here-doc is detected, the shell must read additional lines using readline(), but with a different prompt (like "> "), and not add these lines to the history. These lines are collected and stored in a temporary file, which is then used as the input redirection.
+
+Implementing this:
+
+When a here-doc is encountered in the token list during parsing:
+
+1. Get the delimiter.
+
+2. Create a temporary file (using mkstemp or similar).
+
+3. Loop:
+
+a. Read a line using readline(), with a different prompt (like heredoc> ).
+
+b. If the line is NULL (ctrl-D), handle it (maybe error or consider it as end).
+
+c. If the line matches the delimiter exactly (without any trailing characters), break.
+
+d. Write the line to the temporary file, followed by a newline.
+
+4. Close the temporary file.
+
+5. Add the temporary file's name to the command's input redirections.
+
+But managing temporary files is important to avoid leaks. The shell must delete the temporary files after the command has executed. However, if the shell is interrupted (like with ctrl-C during here-doc input), the temporary files may be left behind. But the subject says that the shell must free all heap memory and avoid leaks, but temporary files may not be considered as memory leaks. However, leaving temporary files around is not ideal. Alternatively, the here-doc content could be stored in a pipe, but as mentioned earlier, pipes have limited buffer sizes.
+
+Alternatively, using a pipe for here-doc content. When reading the lines, write them into a pipe, and then use the read end of the pipe as the input for the command. But if the data is larger than the pipe's buffer, the write will block until the reader consumes the data. Since the reader is the command itself, which is executed after the here-doc is processed, this could lead to deadlock. Therefore, using a temporary file is more reliable.
+
+So, using a temporary file is the way to go. The steps would be:
+
+- Create a temporary file with a unique name (e.g., /tmp/minishell_heredoc_XXXXXX).
+
+- Read lines until delimiter is found, writing each to the file.
+
+- Set the command's input to this file.
+
+- After the command is executed, unlink (delete) the temporary file.
+
+But if the shell crashes, the temporary file remains. But given the scope of the project, this may be acceptable.
+
+Now, environment variables. The shell must handle variables like $VAR and $?. Also, the builtins export, unset, and env must manage the environment. The environment variables can be stored as a list of strings (like the standard 'char **environ'), but since modifying the environment (with export, unset) requires managing this list, it's better to maintain a copy of the environment variables in a linked list or a dynamic array. This allows efficient addition, removal, and modification of variables.
+
+For example:
+
+typedef struct s_env {
+
+char *key;
+
+char *value;
+
+struct s_env *next;
+
+} t_env;
+
+t_env *env_list;
+
+The env_list is initialized from the 'environ' global variable at shell startup. Then, when export or unset is called, the list is modified accordingly. When a child process is executed, the env_list is converted back into a char ** array for execve.
+
+This approach makes it easier to manage variables, search for them, etc.
+
+For example, the export builtin would parse arguments as key=value pairs and add them to env_list. The unset builtin removes variables from env_list.
+
+The env builtin prints all environment variables in the env_list (those that have a value).
+
+Now, the exit builtin. It should exit the shell with the given status (or 0 if none). If the argument is not a valid number, it should print an error message and exit with 255.
+
+The exit builtin must also handle being part of a pipeline. For example, "exit | echo hello" should exit the subshell (the child process), but not the parent shell.
+
+So, in the case where exit is part of a pipeline, it runs in a child process and exits that child, but the parent shell continues. Only when exit is a single command, it exits the parent shell.
+
+Now, handling the PATH variable. When executing a command, the shell must search for the executable in the directories listed in PATH. If the command is a relative or absolute path (like ./cmd, /bin/ls), it should execute that directly. Otherwise, search each directory in PATH for the executable.
+
+For example, to execute 'ls', the shell looks in each PATH directory (split by ':') for a file named 'ls', and if found, executes it.
+
+The execve() function can be used, but the shell must handle the PATH lookup itself. Wait, no: execve() will handle PATH if the file is not found. Wait, no. If the command is a simple name (like 'ls'), execve() requires the full path. To replicate the shell's behavior, the shell must search the PATH directories for the executable.
+
+So the shell must:
+
+1. Check if the command starts with '/' or './' or '../' → it's a path, use as-is.
+
+2. Otherwise, search each directory in PATH for the command.
+
+3. If found, execute it; else, return an error.
+
+So the function to find the executable path would be:
+
+char *find_executable(char *cmd, t_env *env) {
+
+if (strchr(cmd, '/') != NULL) {
+
+// check if cmd exists and is executable
+
+if (access(cmd, X_OK) == 0) {
+
+return strdup(cmd);
+
+} else {
+
+return NULL;
+
+}
+
+} else {
+
+char *path = get_env_value(env, "PATH");
+
+if (!path) {
+
+// PATH is not set, maybe default to some paths?
+
+return NULL;
+
+}
+
+char **dirs = split(path, ':');
+
+for each dir in dirs {
+
+char *full_path = malloc(strlen(dir) + strlen(cmd) + 2);
+
+sprintf(full_path, "%s/%s", dir, cmd);
+
+if (access(full_path, X_OK) == 0) {
+
+free(dirs);
+
+return full_path;
+
+}
+
+free(full_path);
+
+}
+
+free(dirs);
+
+return NULL;
+
+}
+
+}
+
+But need to handle errors, such as if the file is not found or not executable.
+
+Now, putting all this together.
+
+The project structure could be organized as follows:
+
+- src/
+
+- main.c (contains main loop, signal setup)
+
+- parser/
+
+- lexer.c (tokenization)
+
+- parser.c (build command structures)
+
+- expander.c (variable expansion, quote removal)
+
+- heredoc.c (handle here-docs)
+
+- executor/
+
+- execute.c (forking, executing commands)
+
+- builtins/ (cd, echo, etc.)
+
+- redirections.c (handle redirections)
+
+- pipes.c (handle pipes)
+
+- utils/
+
+- env.c (manage environment variables)
+
+- signals.c (signal handlers)
+
+- error.c (error handling)
+
+- path.c (find executable path)
+
+- includes/
+
+- minishell.h (main header with structs and prototypes)
+
+The main loop in main.c would look something like:
+
+initialize environment (env_list);
+
+setup_prompt_signals();
+
+while (1) {
+
+char *input = readline("minishell> ");
+
+if (input == NULL) { // ctrl-D
+
+printf("exit\n");
+
+exit(0);
+
+}
+
+if (*input != '\0') {
+
+add_history(input);
+
+t_list *tokens = tokenize(input);
+
+t_ast *ast = parse(tokens);
+
+if (ast) {
+
+expand_ast(ast); // handle variable expansion, quotes
+
+execute_ast(ast);
+
+}
+
+free_ast(ast);
+
+free_tokens(tokens);
+
+}
+
+free(input);
+
+}
+
+But the details of tokenize, parse, expand_ast, execute_ast are non-trivial.
+
+For memory management, all allocated memory must be freed. Using Valgrind or similar tools to check for leaks is essential. All temporary files for here-docs should be unlinked after use.
+
+Testing each component separately is crucial. For example, unit tests for the lexer, parser, expander, builtins, etc.
+
+Potential challenges:
+
+- Handling quotes and expansions correctly.
+
+- Managing file descriptors and avoiding leaks (e.g., closing all unused pipe ends).
+
+- Signal handling, especially ensuring that the shell behaves correctly in interactive mode and during command execution.
+
+- Memory management, ensuring no leaks, especially in the parser and executor.
+
+The project requires careful planning and modular code to handle these aspects. Starting with the main loop, then implementing the lexer and parser, followed by expansion and execution. Testing each part incrementally will help catch errors early.
+
+Another important aspect is error handling. For example, syntax errors (like unclosed quotes, invalid redirections) should be detected during parsing and result in an error message without executing the command. The shell should continue running.
+
+For example, if the user enters 'echo "hello', the parser should detect the unterminated double quote and print an error, not proceed to execution.
+
+Implementing error messages similar to bash (like "syntax error near unexpected token `|'") would be beneficial.
+
+In terms of scalability, separating the different components (lexing, parsing, expanding, executing) into separate modules with clear interfaces will make the code easier to maintain and extend. Using data structures like linked lists for tokens, commands, environment variables, etc., helps manage dynamic data.
+
+Also, adhering to the Norm (coding style) is crucial. The Norm typically requires functions to be no longer than 25 lines, variables to be named in snake_case, and other style constraints. So code must be structured to comply with these rules.
+
+In conclusion, the steps to build the minishell are:
+
+1. Set up the main loop with readline and history.
+
+2. Implement signal handling for interactive mode and command execution.
+
+3. Write the lexer to tokenize input, handling quotes and operators.
+
+4. Write the parser to build a command structure from tokens.
+
+5. Handle variable expansion and here-docs during parsing.
+
+6. Implement the execution logic, including pipes, redirections, and builtins.
+
+7. Thoroughly test each component and ensure no memory leaks.
+
+Here's a step-by-step explanation to build a scalable minishell:
+
+1. Project Setup
+Directory Structure:
+
+minishell/
+├── includes/       # Header files
+├── src/            # Source files
+│   ├── main.c      # Main loop and setup
+│   ├── parser/     # Lexer, parser, expander
+│   ├── executor/   # Execution, builtins, pipes/redirections
+│   └── utils/      # Environment, signals, error handling
+├── libft/          # Custom libft (if used)
+└── Makefile        # Build rules
+2. Main Loop
+Read Input: Use readline() to display a prompt and read commands.
+
+Signal Handling: Set up handlers for SIGINT (Ctrl+C) and SIGQUIT (Ctrl+).
+
+History: Add commands to history with add_history() (except here-doc input).
+
+// Pseudocode
+setup_prompt_signals();
+while (1) {
+    char *input = readline("minishell> ");
+    handle_ctrl_d(input);
+    add_history(input);
+    parse_and_execute(input);
+    free(input);
+}
+
+3. Lexer (Tokenization)
+Token Types: Split input into words, operators (|, >, >>, <, <<).
+
+Quotes Handling: Track ' and " to ignore metacharacters inside.
+
+Special Chars: Handle $ for variables and $? for exit status.
+
+// Example tokens for "echo "hello $USER" > out.txt":
+["echo", "hello $USER", ">", "out.txt"]
+4. Parser (AST Construction)
+Command Structure: Each command has args, redirections, and pipes.
+
+Syntax Check: Validate token order (e.g., no pipe at start/end).
+
+Here-Doc Handling: Read input until delimiter and store in temp files.
+
+typedef struct s_cmd {
+    char **args;
+    t_redir *input;
+    t_redir *output;
+    struct s_cmd *next; // For pipes
+} t_cmd;
+
+5. Expander
+Variable Expansion: Replace $VAR with env values inside " ".
+
+Exit Status: Replace $? with the last command’s exit status.
+
+Quote Removal: Strip quotes after processing expansions.
+
+// Example: "hello $USER" → "hello john" (if USER=john)
+6. Executor
+Builtins: Handle echo, cd, pwd, export, unset, env, exit.
+
+Pipes: Fork child processes and connect stdout/stdin via pipes.
+
+Redirections: Open files and redirect input/output.
+
+Signals: Ignore signals in parent, reset to default in children.
+
+// Execute a command pipeline
+void execute(t_cmd *cmd) {
+    if (is_builtin(cmd) && !cmd->next)
+        run_builtin(cmd);
+    else
+        fork_and_exec(cmd);
+}
+7. Builtins Implementation
+cd: Use chdir() and update PWD/OLDPWD.
+
+export/unset: Modify the environment variable list.
+
+exit: Cleanup resources and exit with status.
+
+int ft_echo(char **args) {
+    // Handle -n flag and print args
+}
+
+8. Signal Handling
+Interactive Mode:
+
+Ctrl+C: Print new prompt.
+
+Ctrl+D: Exit shell.
+
+Ctrl+\: Ignored.
+
+Command Execution:
+
+Ctrl+C/Ctrl+\: Terminate foreground command.
+
+void handle_sigint(int sig) {
+    write(1, "\n", 1)
+   }
+
+
