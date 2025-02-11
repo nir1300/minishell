@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   libft.h                                            :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: vagarcia <vagarcia@student.42.fr>          +#+  +:+       +#+        */
+/*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/09/05 10:39:01 by vagarcia          #+#    #+#             */
-/*   Updated: 2025/01/31 16:02:20 by vagarcia         ###   ########.fr       */
+/*   Updated: 2025/02/11 12:41:58 by codespace        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -99,5 +99,7 @@ char	*ft_freejoin(char *buffer, char *new);
 char	*ft_strchr(const char *str, int car);
 size_t	ft_strlen(const char *str);
 void	*ft_calloc(size_t nmemb, size_t size);
+char	*ft_strtok(char *str, const char *delim);
+void ft_free(char **tab);
 
 #endif

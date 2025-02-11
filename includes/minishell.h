@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   minishell.h                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: vagarcia <vagarcia@student.42.fr>          +#+  +:+       +#+        */
+/*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/02/10 14:05:48 by vagarcia          #+#    #+#             */
-/*   Updated: 2025/02/10 15:00:29 by vagarcia         ###   ########.fr       */
+/*   Updated: 2025/02/11 12:42:26 by codespace        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,7 @@
 /******************************
  *        INCLUDES            *
  ******************************/
+
 # include <dirent.h>
 # include <errno.h>
 # include <fcntl.h>
@@ -86,6 +87,19 @@ typedef struct s_redir
     struct s_redir *next;
 }   t_redir;
 
+typedef struct s_token
+{
+    char *value;
+    struct s_token *next;
+} t_token;
+
+typedef struct s_ast_node
+{
+    t_token *token;
+    struct s_ast_node *left;
+    struct s_ast_node *right;
+} t_ast_node;
+
 /* Command Node */
 typedef struct s_cmd
 {
@@ -111,33 +125,41 @@ typedef struct s_job
 /* Unified Minishell Struct */
 typedef struct s_minishell
 {
-    char **env;              // Environment variables
-    int exit_status;         // Exit status of last command
-    bool is_interactive;     // Interactive mode flag
-    int signal_status;       // Signal handling variable
-
-    /* Command Execution */
-    char *input;             // Raw user input
-    t_cmd *cmds;             // Command linked list
-
-    /* Job Control */
-    t_job *jobs;             // Background job list
-    int last_job_id;         // Last assigned job ID
-
-    /* File Descriptors */
-    int stdin_backup;        // Backup of stdin (0)
-    int stdout_backup;       // Backup of stdout (1)
-
-}   t_minishell;
+    char **env;
+    int exit_status;
+    int is_interactive;
+    int signal_status;
+    int stdin_backup;
+    int stdout_backup;
+    char *input;
+    t_cmd *cmds;
+    t_job *jobs;
+    int last_job_id;
+}       t_minishell;
 
 /******************************
  *        FUNCTION PROTOTYPES *
  ******************************/
 
+
+/* Testing implementations */
+# define TOKEN_DELIMITERS " \t\r\n\a"
+
+char **copy_env(char **envp);
+void free_env(char **env);
+t_token *lexer(char *input);
+t_ast_node *parser(t_token *tokens);
+void free_tokens(t_token *tokens);
+void free_ast(t_ast_node *root);
+void print_ast(t_ast_node *root, int level);
+
 /* ======= SHELL INIT & MAIN LOOP ======= */
+
+void        minishell_loop(t_minishell *shell);
 void        init_minishell(t_minishell *shell, char **envp);
 void        start_minishell(t_minishell *shell);
 void        cleanup_minishell(t_minishell *shell);
+void        exit_minishell(t_minishell *shell, int exit_code);
 
 /* ======= LEXER (Tokenization) ======= */
 t_list      *lexer_tokenize(char *input);
@@ -196,6 +218,6 @@ void        continue_job(t_minishell *shell, int job_id, bool foreground);
 /* ======= MEMORY MANAGEMENT ======= */
 void        free_command(t_cmd *cmd);
 void        free_redirections(t_redir *redir);
-void        free_jobs(t_minishell *shell);
+void        free_jobs(t_job *jobs);
 
 #endif

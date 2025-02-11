@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   ft_split.c                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: vagarcia <vagarcia@student.42.fr>          +#+  +:+       +#+        */
+/*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/09/16 18:39:05 by vagarcia          #+#    #+#             */
-/*   Updated: 2024/09/20 11:53:46 by vagarcia         ###   ########.fr       */
+/*   Updated: 2025/02/11 12:04:38 by codespace        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -33,11 +33,13 @@ static int	ft_wc(const char *s, char c)
 	return (i);
 }
 
-static void	ft_free(char **arr)
+void	ft_free(char **arr)
 {
 	int		i;
 
 	i = 0;
+	if (!arr)
+		return ;
 	while (arr[i])
 	{
 		free(arr[i]);

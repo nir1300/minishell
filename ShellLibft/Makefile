@@ -3,10 +3,10 @@
 #                                                         :::      ::::::::    #
 #    Makefile                                           :+:      :+:    :+:    #
 #                                                     +:+ +:+         +:+      #
-#    By: vagarcia <vagarcia@student.42.fr>          +#+  +:+       +#+         #
+#    By: codespace <codespace@student.42.fr>        +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2024/09/06 13:05:58 by vagarcia          #+#    #+#              #
-#    Updated: 2025/02/10 15:01:25 by vagarcia         ###   ########.fr        #
+#    Updated: 2025/02/11 12:33:34 by codespace        ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
@@ -19,7 +19,7 @@ CFLAGS = -Wall -Wextra -Werror -Isrc -Iinclude
 CFILES = ft_isalpha.c ft_isascii.c ft_isalnum.c ft_isdigit.c \
 	 ft_isprint.c ft_tolower.c ft_toupper.c ft_strlcat.c \
 	 ft_strlcpy.c ft_strlen.c ft_strncmp.c ft_strdup.c \
-	 ft_strchr.c ft_memset.c ft_memcpy.c ft_bzero.c \
+	 ft_strchr.c ft_memset.c ft_memcpy.c ft_bzero.c ft_strtok.c \
 	 ft_atoi.c ft_calloc.c ft_strrchr.c ft_strlcpy.c \
 	 ft_memchr.c ft_memcmp.c ft_memmove.c ft_putchar_fd.c \
 	 ft_putendl_fd.c ft_putnbr_fd.c ft_putstr_fd.c ft_substr.c \
