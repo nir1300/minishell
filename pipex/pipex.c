@@ -29,7 +29,7 @@ void	initialise(int argc, char *argv[], t_pipe *data)
 		heredoc++;
 	}
 	if (data->input_fd < 0)
-		perror(argv[1]);
+		perror("heredocc"); //changed 
 	data->output_fd = open(argv[argc - 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (data->output_fd < 0)
 	{
@@ -49,7 +49,8 @@ void	create_cmd(t_pipe *data, char *argv[], int i)
 		free(data->path);
 		data->path = NULL;
 	}
-	data->args = ft_split(argv[i + 2], ' ');
+	data->args = ft_split(argv[i + 2 + 1], ' '); //heredoc
+	printf("%s\n\n", data->args[0]);
 	if (!data->args || data->args[0] == NULL)
 		free_struct(data, errno);
 	data->path = ft_strjoin("/bin/", data->args[0]);
@@ -65,6 +66,7 @@ void	first_child(t_pipe *data, char *argv[], char *envp[])
 	data->pid[0] = fork();
 	if (data->pid[0] == 0)
 	{
+		
 		if (dup2(data->input_fd, STDIN_FILENO) == -1)
 			free_struct(data, errno);
 		if (dup2(data->pipe_fd[1], STDOUT_FILENO) == -1)
@@ -84,6 +86,7 @@ void	middle_child(t_pipe *data, char *argv[], int i, char *envp[])
 	{
 		if (dup2(data->pipe_fd[(i - 1) * 2], STDIN_FILENO) == -1)
 			free_struct(data, errno);
+		
 		if (i == data->cmdcount - 1)
 		{
 			if (dup2(data->output_fd, STDOUT_FILENO) == -1)
@@ -94,6 +97,7 @@ void	middle_child(t_pipe *data, char *argv[], int i, char *envp[])
 			if (dup2(data->pipe_fd[(i * 2) + 1], STDOUT_FILENO) == -1)
 				free_struct(data, errno);
 		}
+		
 		ft_close(data);
 		execve(data->path, data->args, envp);
 		free_struct(data, 127);
@@ -137,22 +141,28 @@ int	main(int argc, char *argv[], char *envp[])
 	initialise(argc, argv, data);
 	if (ft_strcmp(argv[1], "here_doc") == 0)
 	{
-		i = 1;
 		handle_heredoc(argc, argv, data);
+		close(data->input_fd);
+		data->input_fd = open("heredoc", O_RDONLY);
 	}
-	return (0);
 	data->pipe_fd = malloc(sizeof(int) * (data->cmdcount - 1) * 2);
 	if (!data->pipe_fd)
 		free_struct(data, errno);
+	i = 0;
 	while (i < (data->cmdcount - 1))
 	{
 		if (pipe(&data->pipe_fd[i++ *2]) == -1)
 			free_struct(data, errno);
 	}
+	// if heredoc
+	i = 1;
 	first_child(data, argv, envp);
-	i = 1 + 1;
+	
+	i = 1;
+	// return (0);
 	while (i < data->cmdcount)
 		middle_child(data, argv, i++, envp);
-	ft_close(data);
-	ft_wait(data);
+	
+	ft_close(data); //change for heredoc?
+	ft_wait(data); //change for heredoc?
 }
