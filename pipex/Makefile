@@ -4,16 +4,14 @@ CC = cc
 CFLAGS = -Wall -Wextra -Werror
 
 # Paths to libft and includes
-LIBFT_DIR = libft
+LIBFT_DIR = ../libft
 LIBFT = $(LIBFT_DIR)/libft.a
 INCLUDES = -I $(LIBFT_DIR) -I .
 
 # Source files
-SRC = main.c helpers.c
-B_SRC = main_bonus.c helpers_bonus.c
+SRC = pipex.c helpers.c
 
 OBJ = $(SRC:.c=.o)
-B_OBJ = $(B_SRC:.c=.o)
 
 # Compilation rules
 all: $(LIBFT_BONUS) $(NAME)
@@ -23,9 +21,6 @@ $(LIBFT):
 
 $(NAME): $(OBJ) $(LIBFT)
 	$(CC) $(CFLAGS) $(OBJ) -g -L$(LIBFT_DIR) -lft -o $(NAME)
-
-bonus: $(OBJ) $(B_OBJ)
-	$(CC) $(CFLAGS) $(B_OBJ) -g -L$(LIBFT_DIR) -lft -o $(NAME)
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -g -c $< -o $@
@@ -40,4 +35,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all bonus clean fclean re
+.PHONY: all clean fclean re
