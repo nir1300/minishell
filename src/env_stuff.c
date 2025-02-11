@@ -1,44 +1,39 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   main.c                                             :+:      :+:    :+:   */
+/*   env_stuff.c                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/02/11 11:36:51 by codespace         #+#    #+#             */
-/*   Updated: 2025/02/11 13:15:30 by codespace        ###   ########.fr       */
+/*   Created: 2025/02/11 13:15:32 by codespace         #+#    #+#             */
+/*   Updated: 2025/02/11 13:15:36 by codespace        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/minishell.h"
 
-void print_ast(t_ast_node *root, int level)
+char **copy_env(char **envp)
 {
     int i;
+    char **env;
 
-    if (!root)
-        return ;
     i = 0;
-    while (i < level)
+    while (envp[i])
+        i++;
+    env = malloc(sizeof(char *) * (i + 1));
+    if (!env)
+        return (NULL);
+    i = 0;
+    while (envp[i])
     {
-        printf("  ");
+        env[i] = ft_strdup(envp[i]);
+        if (!env[i])
+        {
+            ft_free(env);
+            return (NULL);
+        }
         i++;
     }
-    printf("%s\n", root->token->value);
-    print_ast(root->left, level + 1);
-    print_ast(root->right, level + 1);
-}
-
-
-int main(int argc, char **argv, char **envp)
-{
-    t_minishell shell;
-
-    (void)argc;
-    (void)argv;
-    init_minishell(&shell, envp);
-    minishell_loop(&shell);
-    cleanup_minishell(&shell);
-    free_env(shell.env);
-    return shell.exit_status;
+    env[i] = NULL;
+    return (env);
 }

@@ -6,7 +6,7 @@
 /*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/02/11 12:07:02 by codespace         #+#    #+#             */
-/*   Updated: 2025/02/11 12:16:33 by codespace        ###   ########.fr       */
+/*   Updated: 2025/02/11 13:11:56 by codespace        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -42,4 +42,48 @@ t_ast_node *parser(t_token *tokens)
         tokens = tokens->next;
     }
     return root;
+}
+
+t_cmd *parse_logical_operators(t_list **tokens)
+{
+    t_cmd *cmd_list = NULL;
+    t_cmd *cmd;
+
+    while (*tokens)
+    {
+        cmd = parse_pipeline(tokens);
+        append_command(&cmd_list, cmd);
+        if (*tokens && (ft_strcmp((*tokens)->content, "&&") == 0 || ft_strcmp((*tokens)->content, "||") == 0))
+        {
+            *tokens = (*tokens)->next; // Skip the logical operator
+        }
+    }
+    return cmd_list;
+}
+
+t_cmd *parse_pipeline(t_list **tokens)
+{
+    t_cmd *cmd_list = NULL;
+    t_cmd *cmd;
+    char **args;
+    int arg_count;
+
+    while (*tokens && ft_strcmp((*tokens)->content, "|") != 0)
+    {
+        arg_count = 0;
+        args = ft_calloc(sizeof(char *), 64); // Assuming max 64 arguments
+        while (*tokens && ft_strcmp((*tokens)->content, "|") != 0)
+        {
+            args[arg_count++] = (*tokens)->content;
+            *tokens = (*tokens)->next;
+        }
+        args[arg_count] = NULL;
+        cmd = create_command_node(args);
+        append_command(&cmd_list, cmd);
+        if (*tokens && ft_strcmp((*tokens)->content, "|") == 0)
+        {
+            *tokens = (*tokens)->next; // Skip the "|"
+        }
+    }
+    return cmd_list;
 }

@@ -6,7 +6,7 @@
 /*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/02/11 11:59:03 by codespace         #+#    #+#             */
-/*   Updated: 2025/02/11 12:43:03 by codespace        ###   ########.fr       */
+/*   Updated: 2025/02/11 13:01:44 by codespace        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -28,14 +28,14 @@ void free_cmd(t_cmd *cmd)
         }
         free(cmd->args);
     }
-    // Free other fields if necessary
-
     free(cmd);
 }
 
 void exit_minishell(t_minishell *shell, int exit_code)
 {
     // Restore standard file descriptors
+    if (shell->env)
+        free_env(shell->env);
     if (dup2(shell->stdin_backup, STDIN_FILENO) == -1)
         perror("Failed to restore stdin");
     if (dup2(shell->stdout_backup, STDOUT_FILENO) == -1)
@@ -48,7 +48,6 @@ void exit_minishell(t_minishell *shell, int exit_code)
         free_cmd(shell->cmds);
     if (shell->jobs)
         free_jobs(shell->jobs);
-    free_env(shell->env);
     rl_clear_history();
     exit(exit_code);
 }
