@@ -6,7 +6,7 @@
 /*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/02/11 13:14:52 by codespace         #+#    #+#             */
-/*   Updated: 2025/02/11 13:15:15 by codespace        ###   ########.fr       */
+/*   Updated: 2025/02/11 14:22:20 by codespace        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -38,11 +38,14 @@ void init_minishell(t_minishell *shell, char **envp)
     //setup_signals();
 }
 
+
+
 void minishell_loop(t_minishell *shell)
 {
     t_token *tokens;
     t_ast_node *ast;
     char *prompt = "Minishell-> ";
+
     while (1)
     {
         shell->input = readline(prompt);
