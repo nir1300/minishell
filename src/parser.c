@@ -3,87 +3,61 @@
 /*                                                        :::      ::::::::   */
 /*   parser.c                                           :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
+/*   By: vagarcia <vagarcia@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/02/11 12:07:02 by codespace         #+#    #+#             */
-/*   Updated: 2025/02/11 13:11:56 by codespace        ###   ########.fr       */
+/*   Created: 2025/02/12 11:57:29 by vagarcia          #+#    #+#             */
+/*   Updated: 2025/02/12 13:10:12 by vagarcia         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/minishell.h"
 
-t_ast_node *create_ast_node(t_token *token)
+int	check_meta(t_token *toks, t_cmd *cmds)
 {
-    t_ast_node *node = malloc(sizeof(t_ast_node));
-    if (!node)
-    {
-        perror("parser: allocation error");
-        exit(EXIT_FAILURE);
-    }
-    node->token = token;
-    node->left = NULL;
-    node->right = NULL;
-    return node;
+	if (ft_strcmp(toks->value, "<") == 0)
+	{
+		if (toks->next)
+			return (add_redirection(cmds, REDIR_IN, toks->next->value), 1);
+	}
+	else if (ft_strcmp(toks->value, ">") == 0)
+	{
+		if (toks->next)
+			return (add_redirection(cmds, REDIR_IN, toks->next->value), 1);
+	}
+	else if (ft_strcmp(toks->value, ">>") == 0)
+	{
+		if (toks->next)
+			return (add_redirection(cmds, REDIR_IN, toks->next->value), 1);
+	}
+	else if (ft_strcmp(toks->value, "<<") == 0)
+	{
+		if (toks->next)
+			return (add_redirection(cmds, REDIR_IN, toks->next->value), 1);
+	}
+	else if (ft_strcmp(toks->value, ";") == 0)
+		cmds->log_op = OP_SEMI;
+	return (0);
 }
 
-t_ast_node *parser(t_token *tokens)
+t_cmd	*parser(t_token *tokens)
 {
-    t_ast_node *root = NULL;
-    t_ast_node *current = NULL;
+	t_cmd	*head;
+	t_cmd	*current_cmd;
 
-    while (tokens)
-    {
-        t_ast_node *new_node = create_ast_node(tokens);
-        if (!root)
-            root = new_node;
-        else
-            current->right = new_node;
-        current = new_node;
-        tokens = tokens->next;
-    }
-    return root;
+	head = NULL;
+	current_cmd = NULL;
+	while (tokens)
+	{
+		if (!current_cmd)
+		{
+			current_cmd = create_cmd_node();
+			if (!head)
+				head = current_cmd;
+		}
+		if (check_meta(tokens, current_cmd) == 0)
+			add_argument(current_cmd, tokens->value);
+		tokens = tokens->next;
+	}
+	return (head);
 }
 
-t_cmd *parse_logical_operators(t_list **tokens)
-{
-    t_cmd *cmd_list = NULL;
-    t_cmd *cmd;
-
-    while (*tokens)
-    {
-        cmd = parse_pipeline(tokens);
-        append_command(&cmd_list, cmd);
-        if (*tokens && (ft_strcmp((*tokens)->content, "&&") == 0 || ft_strcmp((*tokens)->content, "||") == 0))
-        {
-            *tokens = (*tokens)->next; // Skip the logical operator
-        }
-    }
-    return cmd_list;
-}
-
-t_cmd *parse_pipeline(t_list **tokens)
-{
-    t_cmd *cmd_list = NULL;
-    t_cmd *cmd;
-    char **args;
-    int arg_count;
-
-    while (*tokens && ft_strcmp((*tokens)->content, "|") != 0)
-    {
-        arg_count = 0;
-        args = ft_calloc(sizeof(char *), 64); // Assuming max 64 arguments
-        while (*tokens && ft_strcmp((*tokens)->content, "|") != 0)
-        {
-            args[arg_count++] = (*tokens)->content;
-            *tokens = (*tokens)->next;
-        }
-        args[arg_count] = NULL;
-        cmd = create_command_node(args);
-        append_command(&cmd_list, cmd);
-        if (*tokens && ft_strcmp((*tokens)->content, "|") == 0)
-        {
-            *tokens = (*tokens)->next; // Skip the "|"
-        }
-    }
-    return cmd_list;
-}

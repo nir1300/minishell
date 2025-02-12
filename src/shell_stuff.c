@@ -3,14 +3,31 @@
 /*                                                        :::      ::::::::   */
 /*   shell_stuff.c                                      :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: codespace <codespace@student.42.fr>        +#+  +:+       +#+        */
+/*   By: vagarcia <vagarcia@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/02/11 13:14:52 by codespace         #+#    #+#             */
-/*   Updated: 2025/02/11 14:22:20 by codespace        ###   ########.fr       */
+/*   Updated: 2025/02/12 13:10:48 by vagarcia         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/minishell.h"
+
+/* Example function for pre-exec testing */
+
+void execute_input(t_minishell *shell)
+{
+    t_token *tokens = lexer(shell->input);
+    if (!tokens)
+        return; // Handle lexer error
+    shell->cmds = parser(tokens);
+    if (!shell->cmds)
+        return; // Handle parser error
+    // Execute commands (implement this)
+    // execute_commands(shell->cmds);
+    // Free tokens and commands (implement this)
+    // free_tokens(tokens);
+    // free_commands(shell->cmds);
+}
 
 void init_minishell(t_minishell *shell, char **envp)
 {
@@ -35,7 +52,7 @@ void init_minishell(t_minishell *shell, char **envp)
         perror("Failed to backup file descriptors");
         exit(EXIT_FAILURE);
     }
-    //setup_signals();
+    setup_signals();
 }
 
 
@@ -43,7 +60,7 @@ void init_minishell(t_minishell *shell, char **envp)
 void minishell_loop(t_minishell *shell)
 {
     t_token *tokens;
-    t_ast_node *ast;
+    t_cmd   *ast;
     char *prompt = "Minishell-> ";
 
     while (1)
@@ -70,8 +87,8 @@ void minishell_loop(t_minishell *shell)
             free_tokens(tokens);
             continue;
         }
-        print_ast(ast, 0);
-        free_ast(ast);
+        //print_ast(ast, 0);
+        //free_ast(ast);
         free_tokens(tokens);
         free(shell->input);
     }
